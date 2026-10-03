@@ -15,6 +15,8 @@
 - `gate`：闸门及其当前开度、运行状态、最大开度和活动命令。
 - `gate_command`：一次开度调整申请，包含目标开度、申请原因、状态和执行令牌。
 - `interlock_decision`：安全复核结论，状态为 clear 或 blocked。
+- `operation_plan`：一次跨上下游的联动调整计划，包含有序阶段列表；阶段状态由各自命令的真实终态派生。
+- `plan_stage`：计划中的一个有序阶段，绑定目标闸门、目标开度和启动后创建的命令。
 
 ## 业务流程
 
@@ -34,16 +36,29 @@
 
 闸门操作员通过 `POST /commands/{id}/execute` 提交执行令牌。服务校验命令、令牌、闸门占用关系和目标开度，在临界区内完成 approved、executing、completed 或 aborted 的转换，并同步更新闸门状态。令牌在命令结束后失效，不能复用。
 
+### create-operation-plan
+
+运行协调员通过 `POST /plans` 登记联动调整计划。服务校验名称、申请人和有序阶段列表（闸门存在、目标开度在闸门限制内），写入 active 状态；此时不创建任何命令，也不占用任何闸门。
+
+### advance-operation-plan
+
+运行协调员通过 `POST /plans/{id}/advance` 推进计划。服务在临界区内读取上一阶段命令的真实终态：任一阶段失败返回 `plan_blocked`，全部完成返回 `plan_already_completed`，当前阶段未结束返回 `plan_stage_in_progress`。依赖全部真实完成后，按当时闸门条件重新确认下一阶段（闸门故障返回 `gate_faulted`，目标开度已被现场达到返回 `plan_condition_changed`），为下一阶段创建待复核命令并冻结起始开度。新命令随后走既有复核与执行流程，阶段完成事实以命令终态为准。
+
 ## 状态与规则
 
 - `gate` 状态：idle、reserved、moving、faulted。
 - `gate_command` 状态：pending、approved、rejected、executing、completed、aborted。
+- `operation_plan` 状态：active、blocked、completed，由阶段命令终态派生。
+- `plan_stage` 状态：waiting、active、completed、failed，由所绑定命令的真实状态派生。
 - 只有 pending 命令可以复核。
 - 只有 approved 命令可以执行，且执行令牌必须匹配。
 - clear 复核与闸门占用必须同时成功；任一步失败时两者都不写入。
 - blocked 复核使命令 rejected，不会占用闸门。
 - 模拟故障会令命令 aborted、闸门 faulted，并保留最终开度。
 - 已完成或已中止的命令不能再次执行。
+- 计划阶段按顺序推进，只有上一阶段命令真实完成后才能启动下一阶段。
+- 阶段启动时才创建命令，waiting 阶段不持有命令也不占用闸门。
+- 已完成阶段是单向事实，后续阶段阻塞或失败不会回写它。
 
 ## 模块边界
 
@@ -64,6 +79,9 @@
 - `GET /commands/{id}`
 - `POST /commands/{id}/interlock`
 - `POST /commands/{id}/execute`
+- `POST /plans`
+- `GET /plans/{id}`
+- `POST /plans/{id}/advance`
 
 错误响应统一为：
 

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,12 +13,14 @@ type MemoryRepository struct {
 	mu       sync.RWMutex
 	gates    map[string]domain.Gate
 	commands map[string]domain.GateCommand
+	plans    map[string]domain.OperationPlan
 }
 
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
 		gates:    make(map[string]domain.Gate),
 		commands: make(map[string]domain.GateCommand),
+		plans:    make(map[string]domain.OperationPlan),
 	}
 }
 
@@ -164,6 +167,174 @@ func (m *MemoryRepository) ExecuteCommand(
 	m.commands[nextCommand.ID] = nextCommand
 	m.gates[nextGate.ID] = nextGate
 	return cloneCommand(nextCommand), nextGate, nil
+}
+
+func (m *MemoryRepository) CreatePlan(_ context.Context, plan domain.OperationPlan) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.plans[plan.ID]; exists {
+		return domain.Conflict("duplicate_plan_id", "plan id already exists")
+	}
+	for _, stage := range plan.Stages {
+		gate, exists := m.gates[stage.GateID]
+		if !exists {
+			return domain.NotFound("gate_not_found", "stage gate id was not found")
+		}
+		if stage.TargetAperture > gate.MaxAperture {
+			return domain.Invalid("invalid_target_aperture", "stage target aperture is outside the gate limit")
+		}
+	}
+
+	m.plans[plan.ID] = clonePlan(plan)
+	return nil
+}
+
+func (m *MemoryRepository) Plan(_ context.Context, id string) (domain.PlanProjection, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	plan, exists := m.plans[id]
+	if !exists {
+		return domain.PlanProjection{}, domain.NotFound("plan_not_found", "plan id was not found")
+	}
+	return m.projectionLocked(plan), nil
+}
+
+func (m *MemoryRepository) AdvancePlan(
+	_ context.Context,
+	planID string,
+	commandID string,
+	requestedBy string,
+	now time.Time,
+) (domain.PlanProjection, domain.GateCommand, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	plan, exists := m.plans[planID]
+	if !exists {
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.NotFound("plan_not_found", "plan id was not found")
+	}
+
+	outcomes := make([]domain.StageStatus, len(plan.Stages))
+	for i, stage := range plan.Stages {
+		if stage.CommandID == "" {
+			outcomes[i] = domain.StageWaiting
+			continue
+		}
+		command, exists := m.commands[stage.CommandID]
+		if !exists {
+			return domain.PlanProjection{}, domain.GateCommand{}, domain.Internal(
+				"plan_command_missing",
+				"stage command record is missing",
+			)
+		}
+		outcomes[i] = domain.StageOutcomeOf(command.Status)
+	}
+
+	switch domain.PlanStatusOf(outcomes) {
+	case domain.PlanBlocked:
+		stage := plan.Stages[firstFailedStage(outcomes)]
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.Conflict(
+			"plan_blocked",
+			fmt.Sprintf("stage %d command %s ended without completion", stage.Sequence, stage.CommandID),
+		)
+	case domain.PlanCompleted:
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.Conflict(
+			"plan_already_completed",
+			"all plan stages are already completed",
+		)
+	}
+
+	for i, outcome := range outcomes {
+		if outcome == domain.StageActive {
+			return domain.PlanProjection{}, domain.GateCommand{}, domain.Conflict(
+				"plan_stage_in_progress",
+				fmt.Sprintf("stage %d is still in progress", plan.Stages[i].Sequence),
+			)
+		}
+	}
+
+	next := -1
+	for i, outcome := range outcomes {
+		if outcome == domain.StageWaiting {
+			next = i
+			break
+		}
+	}
+	if next < 0 {
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.Internal(
+			"plan_stage_missing",
+			"no stage is available to start",
+		)
+	}
+
+	stage := plan.Stages[next]
+	gate, exists := m.gates[stage.GateID]
+	if !exists {
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.NotFound("gate_not_found", "stage gate id was not found")
+	}
+	if gate.Status == domain.GateFaulted {
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.Conflict("gate_faulted", "stage gate is faulted")
+	}
+	if gate.Aperture == stage.TargetAperture {
+		return domain.PlanProjection{}, domain.GateCommand{}, domain.Conflict(
+			"plan_condition_changed",
+			"gate aperture already matches the stage target",
+		)
+	}
+
+	command, err := domain.NewGateCommand(
+		commandID,
+		gate.ID,
+		stage.TargetAperture,
+		gate.Aperture,
+		gate.MaxAperture,
+		stage.Reason,
+		requestedBy,
+		now,
+	)
+	if err != nil {
+		return domain.PlanProjection{}, domain.GateCommand{}, err
+	}
+
+	nextPlan := clonePlan(plan)
+	if err := nextPlan.MarkStageStarted(next, command.ID, now); err != nil {
+		return domain.PlanProjection{}, domain.GateCommand{}, err
+	}
+
+	m.commands[command.ID] = command
+	m.plans[nextPlan.ID] = nextPlan
+	return m.projectionLocked(nextPlan), cloneCommand(command), nil
+}
+
+func firstFailedStage(outcomes []domain.StageStatus) int {
+	for i, outcome := range outcomes {
+		if outcome == domain.StageFailed {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m *MemoryRepository) projectionLocked(plan domain.OperationPlan) domain.PlanProjection {
+	commands := make(map[string]domain.GateCommand)
+	for _, stage := range plan.Stages {
+		if stage.CommandID == "" {
+			continue
+		}
+		if command, exists := m.commands[stage.CommandID]; exists {
+			commands[command.ID] = cloneCommand(command)
+		}
+	}
+	return domain.PlanProjection{Plan: clonePlan(plan), Commands: commands}
+}
+
+func clonePlan(plan domain.OperationPlan) domain.OperationPlan {
+	stages := make([]domain.PlanStage, len(plan.Stages))
+	copy(stages, plan.Stages)
+	plan.Stages = stages
+	return plan
 }
 
 func cloneCommand(command domain.GateCommand) domain.GateCommand {

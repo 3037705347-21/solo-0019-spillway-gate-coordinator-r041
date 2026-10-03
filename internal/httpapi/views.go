@@ -53,3 +53,27 @@ func commandView(command domain.GateCommand, includeToken bool) contracts.Comman
 	}
 	return view
 }
+
+func planView(projection domain.PlanProjection) contracts.PlanView {
+	stages := make([]contracts.PlanStageView, len(projection.Plan.Stages))
+	for i, stage := range projection.Plan.Stages {
+		stages[i] = contracts.PlanStageView{
+			Sequence:       stage.Sequence,
+			GateID:         stage.GateID,
+			TargetAperture: stage.TargetAperture,
+			Reason:         stage.Reason,
+			Status:         string(projection.StageOutcome(stage)),
+			CommandID:      stage.CommandID,
+		}
+	}
+	return contracts.PlanView{
+		ID:          projection.Plan.ID,
+		Name:        projection.Plan.Name,
+		RequestedBy: projection.Plan.RequestedBy,
+		Status:      string(projection.Status()),
+		Stages:      stages,
+		CreatedAt:   formatTime(projection.Plan.CreatedAt),
+		UpdatedAt:   formatTime(projection.Plan.UpdatedAt),
+		Version:     projection.Plan.Version,
+	}
+}

@@ -124,6 +124,27 @@
         "storage",
         "contracts"
       ]
+    },
+    {
+      "id": "advance-operation-plan",
+      "name": "Advance staged operation plan",
+      "entry": "POST /plans and POST /plans/{id}/advance",
+      "steps": [
+        "register an ordered stage list without creating commands or occupying gates",
+        "re-confirm the previous stage real completion fact and current gate conditions inside one repository lock",
+        "create the next stage pending command only after all prior stages completed"
+      ],
+      "success": "returns the started stage command and a plan projection derived from real command records",
+      "failure": "returns stable conflicts: plan_blocked for a failed predecessor, plan_stage_in_progress for concurrent or duplicate advance, plan_condition_changed or gate_faulted for changed conditions, plan_already_completed for repeated advancement",
+      "verification": "workflowcheck advances a two-gate plan in order, proves concurrent and duplicate advances lose consistently, proves waiting stages never occupy gates, and proves completed stages survive later blockage",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
     }
   ],
   "complexity": {

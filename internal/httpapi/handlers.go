@@ -109,3 +109,49 @@ func (h *handler) executeCommand(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 }
+
+func (h *handler) createPlan(w http.ResponseWriter, r *http.Request) {
+	var request contracts.CreatePlanRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+
+	projection, err := h.service.CreatePlan(r.Context(), request)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, contracts.PlanResponse{Plan: planView(projection)})
+}
+
+func (h *handler) plan(w http.ResponseWriter, r *http.Request) {
+	projection, err := h.service.Plan(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, contracts.PlanResponse{Plan: planView(projection)})
+}
+
+func (h *handler) advancePlan(w http.ResponseWriter, r *http.Request) {
+	var request contracts.AdvancePlanRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+
+	projection, command, err := h.service.AdvancePlan(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(
+		w,
+		http.StatusOK,
+		contracts.AdvancePlanResponse{
+			Plan:    planView(projection),
+			Command: commandView(command, false),
+		},
+	)
+}

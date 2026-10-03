@@ -79,3 +79,28 @@ func fixtureClearReview(
 	}
 	return command, nil
 }
+
+func fixtureExecute(
+	client *apiClient,
+	commandID string,
+	token string,
+	operator string,
+	simulateFault bool,
+) (map[string]any, error) {
+	result, err := client.post("/commands/"+commandID+"/execute", map[string]any{
+		"operator":       operator,
+		"token":          token,
+		"simulate_fault": simulateFault,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := requireStatus(result, http.StatusOK, "execute fixture command"); err != nil {
+		return nil, err
+	}
+	command, err := objectField(result.Body, "command")
+	if err != nil {
+		return nil, fmt.Errorf("execute fixture command response: %w", err)
+	}
+	return command, nil
+}

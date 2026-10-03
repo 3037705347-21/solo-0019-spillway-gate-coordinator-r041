@@ -27,4 +27,13 @@ type Repository interface {
 		simulateFault bool,
 		now time.Time,
 	) (domain.GateCommand, domain.Gate, error)
+	CreatePlan(ctx context.Context, plan domain.OperationPlan) error
+	Plan(ctx context.Context, id string) (domain.PlanProjection, error)
+	AdvancePlan(
+		ctx context.Context,
+		planID string,
+		commandID string,
+		requestedBy string,
+		now time.Time,
+	) (domain.PlanProjection, domain.GateCommand, error)
 }

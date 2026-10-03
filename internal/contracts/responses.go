@@ -61,3 +61,32 @@ type ExecuteCommandResponse struct {
 	Command CommandView `json:"command"`
 	Gate    GateView    `json:"gate"`
 }
+
+type PlanStageView struct {
+	Sequence       int     `json:"sequence"`
+	GateID         string  `json:"gate_id"`
+	TargetAperture float64 `json:"target_aperture"`
+	Reason         string  `json:"reason"`
+	Status         string  `json:"status"`
+	CommandID      string  `json:"command_id,omitempty"`
+}
+
+type PlanView struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	RequestedBy string          `json:"requested_by"`
+	Status      string          `json:"status"`
+	Stages      []PlanStageView `json:"stages"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	Version     int64           `json:"version"`
+}
+
+type PlanResponse struct {
+	Plan PlanView `json:"plan"`
+}
+
+type AdvancePlanResponse struct {
+	Plan    PlanView    `json:"plan"`
+	Command CommandView `json:"command"`
+}

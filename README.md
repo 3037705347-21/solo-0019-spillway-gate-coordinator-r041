@@ -1,6 +1,6 @@
 # 泄洪闸门操作协调服务
 
-这是一个无外部依赖的 Go 后端，用本地内存仓库协调闸门登记、开度调整命令、安全联锁复核和执行结果。服务强调单闸门活动命令互斥、原子状态转换、执行令牌生命周期和稳定错误传播。
+这是一个无外部依赖的 Go 后端，用本地内存仓库协调闸门登记、开度调整命令、安全联锁复核和执行结果，并支持按业务顺序分阶段推进的跨闸门联动调整计划。服务强调单闸门活动命令互斥、原子状态转换、执行令牌生命周期、阶段依赖确认和稳定错误传播。
 
 ## 运行
 
@@ -20,6 +20,9 @@ POST /commands
 GET  /commands/{id}
 POST /commands/{id}/interlock
 POST /commands/{id}/execute
+POST /plans
+GET  /plans/{id}
+POST /plans/{id}/advance
 ```
 
 登记闸门示例：
@@ -64,6 +67,29 @@ POST /commands/{id}/execute
 }
 ```
 
+创建联动计划示例：
+
+```json
+{
+  "name": "上下游联动泄洪",
+  "requested_by": "dispatcher-lin",
+  "stages": [
+    {"gate_id": "gate-upstream", "target_aperture": 2.5, "reason": "先抬上游开度"},
+    {"gate_id": "gate-downstream", "target_aperture": 3.0, "reason": "再放下游流量"}
+  ]
+}
+```
+
+推进计划示例（`POST /plans/{id}/advance`）：
+
+```json
+{
+  "requested_by": "dispatcher-lin"
+}
+```
+
+推进在上一阶段命令真实完成后才为下一阶段创建待复核命令；前置失败返回 `plan_blocked`，阶段进行中或并发推进返回 `plan_stage_in_progress`，现场条件已变化返回 `plan_condition_changed` 或 `gate_faulted`，计划完成后重复推进返回 `plan_already_completed`。
+
 ## 目录
 
 - `cmd/server`：服务进程。
@@ -82,6 +108,7 @@ go run ./cmd/workflowcheck --workflow register-gate
 go run ./cmd/workflowcheck --workflow request-gate-command
 go run ./cmd/workflowcheck --workflow review-safety-interlock
 go run ./cmd/workflowcheck --workflow execute-gate-command
+go run ./cmd/workflowcheck --workflow advance-operation-plan
 ```
 
 这些检查会创建临时 HTTP 服务并调用真实路由。它们不调用外部网络，也不依赖数据库。
