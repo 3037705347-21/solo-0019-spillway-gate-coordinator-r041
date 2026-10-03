@@ -28,6 +28,8 @@ type GateCommand struct {
 	ExecutionToken   string
 	ExecutedBy       string
 	TerminalReason   string
+	PlanID           string
+	PlanStage        int
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Version          int64
@@ -41,6 +43,8 @@ func NewGateCommand(
 	maxAperture float64,
 	reason string,
 	requestedBy string,
+	planID string,
+	planStage int,
 	now time.Time,
 ) (GateCommand, error) {
 	commandID = strings.TrimSpace(commandID)
@@ -63,6 +67,11 @@ func NewGateCommand(
 		return GateCommand{}, Invalid("invalid_requested_by", "requested_by is required")
 	}
 
+	planID = strings.TrimSpace(planID)
+	if planID != "" && planStage <= 0 {
+		return GateCommand{}, Invalid("invalid_plan_link", "plan-linked commands must reference a stage sequence")
+	}
+
 	if startingAperture < 0 || startingAperture > maxAperture {
 		return GateCommand{}, Invalid("invalid_starting_aperture", "starting aperture is outside the gate limit")
 	}
@@ -81,6 +90,8 @@ func NewGateCommand(
 		Reason:           reason,
 		RequestedBy:      requestedBy,
 		Status:           CommandPending,
+		PlanID:           planID,
+		PlanStage:        planStage,
 		CreatedAt:        now.UTC(),
 		UpdatedAt:        now.UTC(),
 		Version:          1,

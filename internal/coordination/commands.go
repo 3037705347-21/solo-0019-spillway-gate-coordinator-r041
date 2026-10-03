@@ -29,6 +29,8 @@ func (s *Service) RequestCommand(
 		gate.MaxAperture,
 		request.Reason,
 		request.RequestedBy,
+		"",
+		0,
 		s.now(),
 	)
 	if err != nil {

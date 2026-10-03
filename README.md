@@ -1,6 +1,6 @@
 # 泄洪闸门操作协调服务
 
-这是一个无外部依赖的 Go 后端，用本地内存仓库协调闸门登记、开度调整命令、安全联锁复核和执行结果。服务强调单闸门活动命令互斥、原子状态转换、执行令牌生命周期和稳定错误传播。
+这是一个无外部依赖的 Go 后端，用本地内存仓库协调闸门登记、开度调整命令、安全联锁复核和执行结果。服务强调单闸门活动命令互斥、原子状态转换、执行令牌生命周期、联动计划的阶段依赖和稳定错误传播。
 
 ## 运行
 
@@ -20,6 +20,10 @@ POST /commands
 GET  /commands/{id}
 POST /commands/{id}/interlock
 POST /commands/{id}/execute
+POST /plans
+GET  /plans/{id}
+POST /plans/{id}/stages/{sequence}/advance
+POST /plans/{id}/stages/{sequence}/execute
 ```
 
 登记闸门示例：
@@ -64,6 +68,31 @@ POST /commands/{id}/execute
 }
 ```
 
+联动计划只登记顺序与意图，登记后所有阶段均为 waiting，不会提前占用闸门：
+
+```json
+{
+  "id": "plan-chain-1",
+  "name": "上下游联动调整",
+  "requested_by": "dispatcher-lin",
+  "stages": [
+    {"gate_id": "gate-east", "target_aperture": 2.0, "reason": "第一阶段调整"},
+    {"gate_id": "gate-north", "target_aperture": 1.5, "reason": "第二阶段调整"}
+  ]
+}
+```
+
+推进阶段时会依据上一阶段命令的真实完成事实和闸门当前条件重新确认，成功后阶段 armed、闸门 reserved 并签发该阶段的一次性执行令牌：
+
+```json
+{
+  "confirmed_by": "safety-wu",
+  "note": "按阶段条件重新确认"
+}
+```
+
+阶段执行请求与单命令执行一致，端点为 `POST /plans/{id}/stages/{sequence}/execute`。阶段故障会中止命令、把闸门锁存为 faulted、将阶段置为 failed 并把计划置为 halted；已完成阶段保持不变，未开始阶段不占用闸门。
+
 ## 目录
 
 - `cmd/server`：服务进程。
@@ -82,9 +111,10 @@ go run ./cmd/workflowcheck --workflow register-gate
 go run ./cmd/workflowcheck --workflow request-gate-command
 go run ./cmd/workflowcheck --workflow review-safety-interlock
 go run ./cmd/workflowcheck --workflow execute-gate-command
+go run ./cmd/workflowcheck --workflow coordinate-operation-plan
 ```
 
-这些检查会创建临时 HTTP 服务并调用真实路由。它们不调用外部网络，也不依赖数据库。
+这些检查会创建临时 HTTP 服务并调用真实路由。它们不调用外部网络，也不依赖数据库。联动计划检查会验证顺序推进、前置事实复核、条件变化、并发冲突、重复推进，以及故障后计划 halted 且历史不被回写。
 
 ## 测试状态
 

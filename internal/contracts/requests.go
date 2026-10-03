@@ -25,3 +25,27 @@ type ExecuteCommandRequest struct {
 	Token         string `json:"token"`
 	SimulateFault bool   `json:"simulate_fault"`
 }
+
+type CreatePlanStageRequest struct {
+	GateID         string  `json:"gate_id"`
+	TargetAperture float64 `json:"target_aperture"`
+	Reason         string  `json:"reason"`
+}
+
+type CreatePlanRequest struct {
+	ID          string                   `json:"id"`
+	Name        string                   `json:"name"`
+	RequestedBy string                   `json:"requested_by"`
+	Stages      []CreatePlanStageRequest `json:"stages"`
+}
+
+type AdvancePlanRequest struct {
+	ConfirmedBy string `json:"confirmed_by"`
+	Note        string `json:"note"`
+}
+
+type ExecutePlanStageRequest struct {
+	Operator      string `json:"operator"`
+	Token         string `json:"token"`
+	SimulateFault bool   `json:"simulate_fault"`
+}

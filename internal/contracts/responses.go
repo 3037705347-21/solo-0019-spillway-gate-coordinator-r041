@@ -35,9 +35,34 @@ type CommandView struct {
 	ExecutionToken   string                 `json:"execution_token,omitempty"`
 	ExecutedBy       string                 `json:"executed_by,omitempty"`
 	TerminalReason   string                 `json:"terminal_reason,omitempty"`
+	PlanID           string                 `json:"plan_id,omitempty"`
+	PlanStage        int                    `json:"plan_stage,omitempty"`
 	CreatedAt        string                 `json:"created_at"`
 	UpdatedAt        string                 `json:"updated_at"`
 	Version          int64                  `json:"version"`
+}
+
+type PlanStageView struct {
+	Sequence       int     `json:"sequence"`
+	GateID         string  `json:"gate_id"`
+	TargetAperture float64 `json:"target_aperture"`
+	Reason         string  `json:"reason"`
+	Status         string  `json:"status"`
+	CommandID      string  `json:"command_id,omitempty"`
+	StartedAt      string  `json:"started_at,omitempty"`
+	FinishedAt     string  `json:"finished_at,omitempty"`
+}
+
+type PlanView struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	RequestedBy string          `json:"requested_by"`
+	Status      string          `json:"status"`
+	HaltReason  string          `json:"halt_reason,omitempty"`
+	Stages      []PlanStageView `json:"stages"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	Version     int64           `json:"version"`
 }
 
 type RegisterGateResponse struct {
@@ -60,4 +85,26 @@ type ReviewCommandResponse struct {
 type ExecuteCommandResponse struct {
 	Command CommandView `json:"command"`
 	Gate    GateView    `json:"gate"`
+}
+
+type CreatePlanResponse struct {
+	Plan PlanView `json:"plan"`
+}
+
+type PlanResponse struct {
+	Plan PlanView `json:"plan"`
+}
+
+type AdvancePlanResponse struct {
+	Plan    PlanView      `json:"plan"`
+	Stage   PlanStageView `json:"stage"`
+	Command CommandView   `json:"command"`
+	Gate    GateView      `json:"gate"`
+}
+
+type ExecutePlanStageResponse struct {
+	Plan    PlanView      `json:"plan"`
+	Stage   PlanStageView `json:"stage"`
+	Command CommandView   `json:"command"`
+	Gate    GateView      `json:"gate"`
 }

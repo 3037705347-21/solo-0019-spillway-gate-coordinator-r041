@@ -40,6 +40,21 @@
         "blocked 结论不能占用闸门",
         "clear 结论必须与闸门占用一起成功"
       ]
+    },
+    {
+      "id": "operation_plan",
+      "label": "联动操作计划",
+      "relations": [
+        "operation_plan has_many plan_stage",
+        "plan_stage arms one gate_command on its gate"
+      ],
+      "invariants": [
+        "计划登记只保存阶段意图，不创建命令、不占用闸门",
+        "阶段只能按业务顺序启动",
+        "阶段启动必须以上一阶段绑定命令真实 completed 为事实",
+        "前置阶段失败后计划 halted，后续阶段不得推进",
+        "已完成阶段不被后续阻塞或失败回写"
+      ]
     }
   ],
   "state_machines": [
@@ -85,6 +100,43 @@
         "只有 approved 可以执行",
         "终态不可回退",
         "版本号在每次转换后递增"
+      ]
+    },
+    {
+      "subject": "plan_stage",
+      "states": [
+        "waiting",
+        "armed",
+        "completed",
+        "failed"
+      ],
+      "transitions": [
+        "waiting->armed",
+        "armed->completed",
+        "armed->failed"
+      ],
+      "invariants": [
+        "waiting 阶段不绑定命令也不占用闸门",
+        "armed 必须绑定命令且目标闸门 reserved",
+        "completed 和 failed 都是单向终态",
+        "阶段只能在其前序阶段 completed 后进入 armed"
+      ]
+    },
+    {
+      "subject": "operation_plan",
+      "states": [
+        "active",
+        "completed",
+        "halted"
+      ],
+      "transitions": [
+        "active->completed",
+        "active->halted"
+      ],
+      "invariants": [
+        "全部阶段 completed 后计划 completed",
+        "任一阶段 failed 后计划 halted 并记录原因",
+        "halted 后不接受任何推进或执行"
       ]
     }
   ],
@@ -167,6 +219,16 @@
       "workflow_id": "execute-gate-command",
       "description": "执行必须同时校验活动命令、命令状态和一次性令牌；故障路径还要原子地中止命令并把闸门锁存为 faulted",
       "observable_failure": "错误或复用令牌仍改变状态，故障时只更新命令未更新闸门，或只更新闸门未清除活动引用"
+    },
+    {
+      "workflow_id": "advance-plan-stage",
+      "description": "阶段启动必须在同一临界区同时满足顺序、前置命令真实 completed 和当前闸门条件，然后原子创建命令、占用闸门并绑定阶段；任何条件不满足都必须整体不写入",
+      "observable_failure": "上一阶段未完成就占用下一闸门，起始开度按登记时而非启动时冻结，或条件不满足时仍留下命令/闸门/阶段残留"
+    },
+    {
+      "workflow_id": "execute-plan-stage",
+      "description": "阶段执行结果必须同时落到命令、闸门、阶段和计划；故障只失败当前阶段并 halt 计划，不能回写已完成阶段，也不能让 waiting 阶段提前占闸",
+      "observable_failure": "后续阶段故障把已完成阶段改回非终态，halted 计划仍可推进，或未开始阶段的闸门出现 reserved/活动命令"
     }
   ]
 }

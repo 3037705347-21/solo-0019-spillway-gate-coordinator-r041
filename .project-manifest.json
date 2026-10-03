@@ -124,6 +124,70 @@
         "storage",
         "contracts"
       ]
+    },
+    {
+      "id": "create-operation-plan",
+      "name": "Create operation plan",
+      "entry": "POST /plans",
+      "steps": [
+        "validate plan identity, requester, and ordered stage drafts",
+        "verify every referenced gate exists, is not faulted, and admits the target aperture",
+        "persist waiting stages as intent without creating commands or reserving gates"
+      ],
+      "success": "returns an active plan whose stages are all waiting and leave every gate idle",
+      "failure": "returns stable invalid input for malformed stages and not found for unknown gates",
+      "verification": "covered by the coordinate-operation-plan workflow check",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
+    },
+    {
+      "id": "advance-plan-stage",
+      "name": "Advance plan stage",
+      "entry": "POST /plans/{id}/stages/{sequence}/advance",
+      "steps": [
+        "validate plan status, stage status, and strict business ordering",
+        "re-read the predecessor command record and require a real completed fact",
+        "re-confirm the current gate conditions and freeze the starting aperture at start time",
+        "create the command, apply the clear interlock, reserve the gate, and arm the stage atomically"
+      ],
+      "success": "returns one armed stage, one approved command with an execution token, and one reserved gate",
+      "failure": "returns stable conflicts for skipped, repeated, or halted stages, missing predecessor completion, and unavailable gates; nothing is written on failure",
+      "verification": "workflowcheck advances stages in order and proves ordering, condition, concurrency, and duplicate rejections",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
+    },
+    {
+      "id": "execute-plan-stage",
+      "name": "Execute plan stage",
+      "entry": "POST /plans/{id}/stages/{sequence}/execute",
+      "steps": [
+        "validate plan status, armed stage, command-to-stage binding, token, and gate reservation",
+        "apply command and gate transitions in the same critical section",
+        "record the real stage outcome and complete or halt the plan without rewriting earlier stages"
+      ],
+      "success": "returns a completed stage and an idle gate; the final stage completes the plan",
+      "failure": "returns stable conflicts for wrong or reused tokens; a fault aborts the command, latches the gate faulted, fails the stage, and halts the plan with later gates untouched",
+      "verification": "workflowcheck completes stages, simulates a stage fault, and confirms history is preserved and later gates stay idle",
+      "module_ids": [
+        "entrypoint",
+        "httpapi",
+        "coordination",
+        "domain",
+        "storage",
+        "contracts"
+      ]
     }
   ],
   "complexity": {
@@ -131,8 +195,9 @@
       "state_transition",
       "concurrency",
       "resource_lifetime",
-      "error_propagation"
+      "error_propagation",
+      "workflow_dependency"
     ],
-    "notes": "Gate reservation and command transitions are committed under one repository lock; execution tokens are single-command resources and become invalid after a terminal transition."
+    "notes": "Gate reservation and command transitions are committed under one repository lock; execution tokens are single-command resources and become invalid after a terminal transition. Operation plans store intent only: each stage is armed strictly in order, re-confirms the predecessor's real completed command fact and the current gate conditions, and binds command, gate, and stage state in one commit; stage failures halt the plan without rewriting completed stages or reserving later gates."
   }
 }
